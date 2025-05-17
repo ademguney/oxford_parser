@@ -28,7 +28,7 @@ def extract_words_from_pdf(pdf_path: str):
         """
 
     word_dict = defaultdict(list)
-    entry_pattern = re.compile(r"(?P<word>^[a-zA-Z\-']+)\s+(?P<info>.+)")
+    entry_pattern = re.compile(r"^(?P<word>[a-zA-Z\-']+)\s+(?P<info>.+)$")
 
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
@@ -40,7 +40,7 @@ def extract_words_from_pdf(pdf_path: str):
             for line in lines:
                 line = line.strip()
 
-                if not line or line.lower().startswith("© oxford") or re.match(r"\d+\s*/\s*\d+", line):
+                if len(line) < 5 or "oxford" in line.lower() or re.match(r"^\d+/\d+$", line):
                     continue
 
                 match = entry_pattern.match(line)
@@ -48,20 +48,19 @@ def extract_words_from_pdf(pdf_path: str):
                     continue
 
                 word = match.group("word")
-                info = match.group("info")
+                info = match.group(2)
                 tokens = [i.strip() for i in info.split(",")]
 
                 for token in tokens:
                     parts = token.split()
                     if len(parts) == 2:
-                        pos = parts[0].replace(".", "")
-                        level = parts[1]
+                        pos = parts[0].replace(".", "").lower()
+                        level = parts[1].strip().upper()
                         word_dict[word].append({
                             "part_of_speech": pos,
                             "level": level
                         })
 
-    # Format: [{ word: ..., parts: [...] }]
     final_list = []
     for word, parts in word_dict.items():
         final_list.append({
