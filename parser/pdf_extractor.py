@@ -1,71 +1,82 @@
 import pdfplumber
 import re
-from collections import defaultdict
+import unicodedata
+from typing import List, Dict
 
-
-def extract_words_from_pdf(pdf_path: str):
+def clean_text(text: str) -> str:
     """
-        Extracts words, their parts of speech, and CEFR levels from an Oxford vocabulary PDF.
+    Clean whitespace, normalize unicode, remove non-printables.
+    """
+    text = re.sub(r'\s+', ' ', text).strip()
+    text = ''.join(ch for ch in text if ch.isprintable())
+    text = unicodedata.normalize('NFKC', text)
+    return text
 
-        The function reads lines like:
-            "back n., adv. A1, adj. A2, v. B2"
-        and converts them into a structured list like:
-            {
-                "word": "back",
-                "parts": [
-                    {"part_of_speech": "n", "level": "A1"},
-                    {"part_of_speech": "adv", "level": "A1"},
-                    {"part_of_speech": "adj", "level": "A2"},
-                    {"part_of_speech": "v", "level": "B2"}
-                ]
-            }
+def is_valid_word(word: str) -> bool:
+    """
+    Accept lowercase alphabetic words, 1-20 characters (to include 'a', 'i').
+    """
+    return re.match(r'^[a-z]+$', word) and 1 <= len(word) <= 20
 
-        Args:
-            pdf_path (str): Path to the PDF file.
+def extract_words_from_pdf(pdf_path: str) -> List[Dict]:
+    """
+    Extracts dictionary entries with word, CEFR level, and parts of speech,
+    preserving part-of-speech and level pairings.
+    """
+    word_entries = []
+    seen_entries = set()
 
-        Returns:
-            List[dict]: A list of dictionaries containing word data with part of speech and level info.
-        """
+    # Composite pattern: (pos. level) e.g., "adj. A2"
+    entry_pattern = re.compile(
+        r'\b(n\.|v\.|adj\.|adv\.|exclam\.|modal v\.|prep\.|conj\.|pron\.|article)\s+(A1|A2|B1|B2|C1|C2)\b',
+        re.IGNORECASE
+    )
 
-    word_dict = defaultdict(list)
-    entry_pattern = re.compile(r"^(?P<word>[a-zA-Z\-']+)\s+(?P<info>.+)$")
-
-    with pdfplumber.open(pdf_path) as pdf:
+    with pdfplumber.open(pdf_path, laparams={'detect_vertical': True, 'all_texts': True}) as pdf:
         for page in pdf.pages:
-            text = page.extract_text()
+            text = page.extract_text(x_tolerance=2, y_tolerance=2, layout=True, use_text_flow=True)
             if not text:
                 continue
 
             lines = text.split('\n')
+
             for line in lines:
-                line = line.strip()
-
-                if len(line) < 5 or "oxford" in line.lower() or re.match(r"^\d+/\d+$", line):
+                line = clean_text(line)
+                if len(line) < 3 or "oxford" in line.lower() or re.match(r"^\d+/\d+$", line):
                     continue
 
-                match = entry_pattern.match(line)
-                if not match:
-                    continue
+                blocks = re.split(r'\s{2,}|\t+', line)
+                for block in blocks:
+                    block = clean_text(block)
+                    if not block:
+                        continue
 
-                word = match.group("word")
-                info = match.group(2)
-                tokens = [i.strip() for i in info.split(",")]
+                    parts = block.split()
+                    if not parts:
+                        continue
 
-                for token in tokens:
-                    parts = token.split()
-                    if len(parts) == 2:
-                        pos = parts[0].replace(".", "").lower()
-                        level = parts[1].strip().upper()
-                        word_dict[word].append({
-                            "part_of_speech": pos,
-                            "level": level
-                        })
+                    # Handle multiple base words e.g. "a, an article A1"
+                    raw_words = parts[0].split(",")
+                    base_words = [w.strip().lower() for w in raw_words if is_valid_word(w.strip().lower())]
 
-    final_list = []
-    for word, parts in word_dict.items():
-        final_list.append({
-            "word": word,
-            "parts": parts
-        })
+                    matches = entry_pattern.findall(block)
 
-    return final_list
+                    if base_words and matches:
+                        for word in base_words:
+                            parts_data = []
+                            for pos, level in matches:
+                                key = f"{word}|{pos.lower()}|{level.upper()}"
+                                if key not in seen_entries:
+                                    seen_entries.add(key)
+                                    parts_data.append({
+                                        "part_of_speech": pos.lower(),
+                                        "level": level.upper()
+                                    })
+
+                            if parts_data:
+                                word_entries.append({
+                                    "word": word,
+                                    "parts": parts_data
+                                })
+
+    return word_entries

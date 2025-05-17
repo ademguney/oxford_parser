@@ -8,6 +8,7 @@ if __name__ == '__main__':
     print("Extracting words from PDF...")
     words = extract_words_from_pdf(pdf_path)
 
+
     print(f" Extracted {len(words)} word entries.")
     print(f" Saving to {output_path}...")
 
