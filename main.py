@@ -2,8 +2,8 @@ from parser.pdf_extractor import extract_words_from_pdf
 import json
 
 if __name__ == '__main__':
-    pdf_path = "data/The_Oxford_3000.pdf"
-    output_path = "data/The_Oxford_3000.json"
+    pdf_path = "data/American_Oxford_5000.pdf"
+    output_path = "data/The_Oxford_5000.json"
 
     print("Extracting words from PDF...")
     words = extract_words_from_pdf(pdf_path)
